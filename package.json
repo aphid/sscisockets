@@ -1,0 +1,25 @@
+{
+  "name": "sscisockets",
+  "version": "0.0.0",
+  "description": "websocket server for unreliable interrogators and oversight machines",
+  "main": "app.js",
+  "dependencies": {
+    "express": "^4.13.3",
+    "rethinkdb": "^2.1.1",
+    "socket.io": "^1.3.7"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aphid/sscisockets.git"
+  },
+  "author": "abram stern (aphid)",
+  "license": "SAX-PD",
+  "bugs": {
+    "url": "https://github.com/aphid/sscisockets/issues"
+  },
+  "homepage": "https://github.com/aphid/sscisockets#readme"
+}
