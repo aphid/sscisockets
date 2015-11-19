@@ -3,6 +3,10 @@ var http = require('http').Server(app);
 var io = require('socket.io')(http);
 var r = require('rethinkdb');
 
+var argyle = {};
+
+
+
 r.connect().then(function (conn) {
 
 
@@ -21,24 +25,28 @@ http.listen(3000, function () {
 
 
 io.on('connection', function (socket) {
-  var address, table, plucks;
+  //var address, table, plucks;
   var referer = socket.request.headers.referer;
-  if (referer.includes('sound')) {
-    table = 'silences';
-    plucks = ['start', 'end', 'attention'];
+  if (referer.includes('sound') || referer.includes('hearing')) {
+    argyle.name = 'quiet';
+    argyle.table = 'silences';
+    argyle.plucks = ['start', 'end', 'attention'];
+    argyle.order = 'start';
   } else if (referer.includes('shot')) {
-    table = 'shots';
-    plucks = ['boundaries'];
+    argyle.name = 'shot';
+    argyle.table = 'shots';
+    argyle.plucks = ['boundaries'];
+    argyle.order = 'timestamp';
   }
 
   r.connect().then(function (conn) {
     address = socket.handshake.address;
 
-    r.db('unrInt').table(table).changes().run(conn, function (err, cursor) {
+    r.db('unrInt').table(argyle.table).changes().run(conn, function (err, cursor) {
       cursor.each(function (err, row) {
         if (row.new_val) {
-          console.log("woo");
-          socket.emit('quiet', row.new_val);
+          console.log("woo, got a " + argyle.name);
+          socket.emit(argyle.name, row.new_val);
         } else {
           console.log("unwoo");
         }
@@ -48,12 +56,12 @@ io.on('connection', function (socket) {
 
 
 
-    r.db('unrInt').table(table).pluck(plucks).run(conn).then(function (cursor) {
+    r.db('unrInt').table(argyle.table).orderBy(argyle.order).pluck(argyle.plucks).run(conn).then(function (cursor) {
       return cursor.toArray();
     }).then(function (results) {
 
 
-      console.log('sending things');
+      console.log('sending ' + results.length + ' ' + argyle.name + ' things');
       io.emit('toDate', JSON.stringify(results));
 
     }).error(function (err) {
@@ -72,6 +80,7 @@ io.on('connection', function (socket) {
     hearing = msg.hearing
     console.log('id: ' + id + ' from: ' + address + " analyzing: " + hearing);
   });
+
   socket.on('intel', function (msg) {
     r.connect().then(function (conn) {
         if (hearing) {
@@ -82,7 +91,8 @@ io.on('connection', function (socket) {
         }
         msg.timestamp = new Date();
         console.log(JSON.stringify(msg, undefined, 2));
-        r.db('unrInt').table('silences').insert(msg).run(conn).then(function (thing) {
+        r.db('unrInt').table(argyle.table).insert(msg).run(conn).then(function (thing) {
+          console.log('got a ' + argyle.name)
           console.log(thing);
 
         });
