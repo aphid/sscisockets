@@ -3,50 +3,80 @@ var http = require('http').Server(app);
 var io = require('socket.io')(http);
 var r = require('rethinkdb');
 
-var argyle = {};
+var dataTypes = [];
+var connection = null;
+
+r.connect({
+  host: 'localhost',
+  port: 28015,
+  db: 'unrInt'
+}, function (err, conn) {
+  if (err) throw err;
+  connection = conn;
+})
 
 
-
-r.connect().then(function (conn) {
-
-
-
+dataTypes.push({
+  name: 'silence',
+  table: 'silences',
+  plucks: ['start', 'end', 'attention'],
+  order: 'start'
 });
 
-
-app.get('/', function (req, res) {
-  res.send('<h1>Hello world</h1>');
+dataTypes.push({
+  name: 'shot',
+  table: 'shots',
+  plucks: ['boundary'],
+  order: 'timestamp'
 });
+
+function dtByName(name) {
+  for (var dt of dataTypes) {
+    if (dt.name === name) {
+      return dt;
+    }
+  }
+  console.log('no type for ' + name);
+  return false;
+}
 
 http.listen(3000, function () {
   console.log('listening on *:3000');
 });
 
-
-
 io.on('connection', function (socket) {
-  //var address, table, plucks;
-  var referer = socket.request.headers.referer;
-  if (referer.includes('sound') || referer.includes('hearing')) {
-    argyle.name = 'quiet';
-    argyle.table = 'silences';
-    argyle.plucks = ['start', 'end', 'attention'];
-    argyle.order = 'start';
-  } else if (referer.includes('shot')) {
-    argyle.name = 'shot';
-    argyle.table = 'shots';
-    argyle.plucks = ['boundaries'];
-    argyle.order = 'timestamp';
-  }
+  address = socket.handshake.address;
 
-  r.connect().then(function (conn) {
-    address = socket.handshake.address;
+  socket.on('subscribe', function (msg) {
+    var room = msg.name;
+    hearing = msg.hearing;
+    console.log('joining room', room);
+    console.log(hearing + " !!!!! ");
+    var type = dtByName(room);
+    socket.join(room);
+    r.table(type.table).orderBy(type.order).filter({
+      'hearing': hearing
+    }).pluck(type.plucks).run(connection).then(function (cursor) {
+      return cursor.toArray();
+    }).then(function (results) {
+      console.log('sending ' + results.length + ' ' + type.name + ' things');
+      response = {
+        type: type.name,
+        data: results
+      };
+      socket.emit('toDate', response);
+    }).error(function (err) {
+      console.log("errrrrr" + err)
+    });
 
-    r.db('unrInt').table(argyle.table).changes().run(conn, function (err, cursor) {
+    r.table(type.table).filter({
+      hearing: hearing
+    }).pluck(type.plucks).changes().run(connection).then(function (cursor) {
       cursor.each(function (err, row) {
         if (row.new_val) {
-          console.log("woo, got a " + argyle.name);
-          socket.emit(argyle.name, row.new_val);
+          console.log("woo, got a " + type.name);
+          socket.emit(type.name, row.new_val);
+          console.log('emitted');
         } else {
           console.log("unwoo");
         }
@@ -54,23 +84,12 @@ io.on('connection', function (socket) {
       });
     });
 
-
-
-    r.db('unrInt').table(argyle.table).orderBy(argyle.order).pluck(argyle.plucks).run(conn).then(function (cursor) {
-      return cursor.toArray();
-    }).then(function (results) {
-
-
-      console.log('sending ' + results.length + ' ' + argyle.name + ' things');
-      io.emit('toDate', JSON.stringify(results));
-
-    }).error(function (err) {
-      console.log("errrrrr" + err)
-    });
-
-
-
   });
+
+
+
+
+
 
 
   var id, hearing;
@@ -82,31 +101,36 @@ io.on('connection', function (socket) {
   });
 
   socket.on('intel', function (msg) {
-    r.connect().then(function (conn) {
-        if (hearing) {
-          msg.hearing = hearing;
-        }
-        if (id) {
-          msg.interrogator = id;
-        }
-        msg.timestamp = new Date();
-        console.log(JSON.stringify(msg, undefined, 2));
-        r.db('unrInt').table(argyle.table).insert(msg).run(conn).then(function (thing) {
-          console.log('got a ' + argyle.name)
-          console.log(thing);
+      if (!hearing && !msg.hearing) {
+        console.log("WTF NO HEARING");
+        return false;
+      } else {
+        msg.hearing = msg.hearing || hearing;
+        hearing = msg.hearing; //KLUDGE
+        console.log(hearing);
+      }
+      if (id) {
+        msg.interrogator = id;
+      }
+      console.log(msg);
+      type = dtByName(msg.type);
+      msg.timestamp = new Date();
+      console.log(JSON.stringify(msg, undefined, 2));
+      r.table(type.table).insert(msg).run(connection).then(function (thing) {
+        console.log('got a ' + type.name)
+        console.log(thing);
 
-        });
-
-
-      },
-      function (wat) {
-        console.log("something failed")
-
-      }); //end r
-
+      });
 
 
-  }); //end intel
+    },
+    function (wat) {
+      console.log("something failed")
+
+
+
+
+    }); //end intel
   socket.on('disconnect', function () {
     console.log('user disconnected');
   });
